@@ -23,7 +23,7 @@ curl -fsSL https://raw.githubusercontent.com/voorz/luci-app-easyfan/main/install
 To install a specific version:
 
 ```sh
-VERSION=4.0.0-1 sh -c "$(curl -fsSL https://raw.githubusercontent.com/voorz/luci-app-easyfan/main/install.sh)"
+VERSION=1.0.0-1 sh -c "$(curl -fsSL https://raw.githubusercontent.com/voorz/luci-app-easyfan/main/install.sh)"
 ```
 
 Or install a release package manually:
