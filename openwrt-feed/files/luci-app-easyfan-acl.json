@@ -1,0 +1,17 @@
+{
+	"luci-app-easyfan": {
+		"description": "Grant access to Easy Fan",
+		"read": {
+			"uci": [ "easyfan" ],
+			"ubus": {
+				"service": [ "list" ]
+			},
+			"file": {
+				"/var/run/easyfan.status": [ "read" ]
+			}
+		},
+		"write": {
+			"uci": [ "easyfan" ]
+		}
+	}
+}

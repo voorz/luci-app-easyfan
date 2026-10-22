@@ -1,0 +1,217 @@
+#!/bin/sh
+# easyfan_loop - Three-stage PWM Easy Fanler for OpenWrt
+# Stages: idle (always on) → normal → mid → full speed
+# Reads config from UCI, directly writes PWM to hwmon sysfs.
+# Outputs /var/run/easyfan.status for LuCI frontend.
+
+STATUS_FILE="/var/run/easyfan.status"
+
+load_conf() {
+  ENABLED=$(uci -q get easyfan.settings.enabled || echo "1")
+  THERMAL_FILE=$(uci -q get easyfan.settings.thermal_file || echo "auto")
+  FAN_FILE=$(uci -q get easyfan.settings.fan_file || echo "auto")
+  TEMP_DIV=$(uci -q get easyfan.settings.temp_div || echo "1000")
+  INTERVAL=$(uci -q get easyfan.settings.interval || echo "5")
+  ENABLE_FILE=$(uci -q get easyfan.settings.enable_file || echo "auto")
+  DEBUG=$(uci -q get easyfan.settings.debug || echo "0")
+
+  # Speed percentages
+  SPEED_IDLE_PCT=$(uci -q get easyfan.settings.speed_idle || echo "10")
+  SPEED_NORMAL_PCT=$(uci -q get easyfan.settings.speed_normal || echo "30")
+  SPEED_MID_PCT=$(uci -q get easyfan.settings.speed_mid || echo "50")
+  SPEED_FULL_PCT=$(uci -q get easyfan.settings.speed_full || echo "100")
+
+  # Temperature thresholds
+  TEMP_NORMAL=$(uci -q get easyfan.settings.temp_normal || echo "30")
+  TEMP_MID=$(uci -q get easyfan.settings.temp_mid || echo "35")
+  TEMP_FULL=$(uci -q get easyfan.settings.temp_full || echo "40")
+
+  HYST=$(uci -q get easyfan.settings.hysteresis || echo "2")
+  FAIL_SAFE_PCT=$(uci -q get easyfan.settings.fail_safe_speed || echo "100")
+  EXIT_PCT=$(uci -q get easyfan.settings.exit_speed || echo "100")
+}
+
+# Convert percentage to PWM value (0-255)
+pct_to_pwm() {
+  echo $(( $1 * 255 / 100 ))
+}
+
+find_thermal() {
+  [ "$THERMAL_FILE" != "auto" ] && { echo "$THERMAL_FILE"; return; }
+  for zone in /sys/class/thermal/thermal_zone*; do
+    [ -e "$zone/temp" ] || continue
+    type=$(cat "$zone/type" 2>/dev/null)
+    case "$type" in cpu*|soc*|*cpu*|*soc*) echo "$zone/temp"; return;; esac
+  done
+  cat /sys/class/thermal/thermal_zone0/temp >/dev/null 2>&1 && echo "/sys/class/thermal/thermal_zone0/temp"
+}
+
+find_fan() {
+  [ "$FAN_FILE" != "auto" ] && { echo "$FAN_FILE"; return; }
+  for h in /sys/class/hwmon/hwmon*; do
+    name=$(cat "$h/name" 2>/dev/null)
+    [ "$name" = "pwmfan" ] && [ -w "$h/pwm1" ] && { echo "$h/pwm1"; return; }
+  done
+  for h in /sys/class/hwmon/hwmon*; do
+    [ -w "$h/pwm1" ] && { echo "$h/pwm1"; return; }
+  done
+}
+
+find_enable() {
+  [ "$ENABLE_FILE" != "auto" ] && { [ -n "$ENABLE_FILE" ] && echo "$ENABLE_FILE"; return; }
+  case "$FAN_FILE" in */pwm[0-9])
+    local dir="${FAN_FILE%/*}" ch="${FAN_FILE##*/pwm}" f="${dir}/pwm${ch}_enable"
+    [ -w "$f" ] && echo "$f";; esac
+}
+
+write_status() {
+  { echo "temperature_mc=$1"; echo "pwm=$2"; echo "rpm=$3"; echo "thermal_file=$REAL_THERMAL"; echo "fan_file=$REAL_FAN"; [ -n "$4" ] && echo "error=$4"; } > "$STATUS_FILE" 2>/dev/null
+}
+
+set_pwm() { echo "$1" > "$REAL_FAN" 2>/dev/null; }
+
+# Three-stage speed calculation with hysteresis and switch delay
+# Tracks current stage to apply hysteresis on temperature drop.
+# Switch delay: target stage must persist for one polling interval before actual switch.
+CURRENT_STAGE=0
+PENDING_STAGE=0
+PENDING_COUNT=0
+
+# Calculate target stage (what stage SHOULD we be in based on temperature)
+calc_target_stage() {
+  local t=$1
+  local hyst_low
+
+  # Stage 3: full speed
+  if [ "$t" -ge "$TEMP_FULL" ]; then
+    echo 3
+    return
+  fi
+
+  # Stage 2: mid speed (with hysteresis on drop from full)
+  hyst_low=$(( TEMP_FULL - HYST ))
+  if [ "$CURRENT_STAGE" -ge 3 ] && [ "$t" -ge "$hyst_low" ]; then
+    echo 3
+    return
+  fi
+  if [ "$t" -ge "$TEMP_MID" ]; then
+    echo 2
+    return
+  fi
+
+  # Stage 1: normal speed (with hysteresis on drop from mid)
+  hyst_low=$(( TEMP_MID - HYST ))
+  if [ "$CURRENT_STAGE" -ge 2 ] && [ "$t" -ge "$hyst_low" ]; then
+    echo 2
+    return
+  fi
+  if [ "$t" -ge "$TEMP_NORMAL" ]; then
+    echo 1
+    return
+  fi
+
+  # Stage 0: idle speed (with hysteresis on drop from normal)
+  hyst_low=$(( TEMP_NORMAL - HYST ))
+  if [ "$CURRENT_STAGE" -ge 1 ] && [ "$t" -ge "$hyst_low" ]; then
+    echo 1
+    return
+  fi
+
+  echo 0
+}
+
+stage_to_pct() {
+  case $1 in
+    3) echo "$SPEED_FULL_PCT" ;;
+    2) echo "$SPEED_MID_PCT" ;;
+    1) echo "$SPEED_NORMAL_PCT" ;;
+    *) echo "$SPEED_IDLE_PCT" ;;
+  esac
+}
+
+calc_speed_pct() {
+  local t=$1
+  local target=$(calc_target_stage "$t")
+
+  # Same stage as current - cancel any pending switch
+  if [ "$target" = "$CURRENT_STAGE" ]; then
+    PENDING_STAGE=0
+    PENDING_COUNT=0
+    echo "$(stage_to_pct "$CURRENT_STAGE")"
+    return
+  fi
+
+  # Different target - track consecutive polling hits
+  if [ "$target" != "$PENDING_STAGE" ]; then
+    PENDING_STAGE=$target
+    PENDING_COUNT=1
+  else
+    PENDING_COUNT=$(( PENDING_COUNT + 1 ))
+  fi
+
+  # Switch after 2 consecutive polling hits (i.e. one full interval of confirmation)
+  if [ "$PENDING_COUNT" -ge 2 ]; then
+    CURRENT_STAGE=$target
+    PENDING_STAGE=0
+    PENDING_COUNT=0
+  fi
+
+  echo "$(stage_to_pct "$CURRENT_STAGE")"
+}
+
+load_conf
+[ "$ENABLED" = "1" ] || { logger -t easyfan "Disabled, exiting"; exit 0; }
+
+REAL_THERMAL=$(find_thermal)
+REAL_FAN=$(find_fan)
+[ -z "$REAL_THERMAL" ] && { logger -t easyfan "ERROR: No thermal sensor"; write_status "" "" "" "No thermal sensor"; exit 1; }
+[ -z "$REAL_FAN" ] && { logger -t easyfan "ERROR: No PWM fan"; write_status "" "" "" "No PWM fan"; exit 1; }
+
+REAL_ENABLE=$(find_enable)
+[ -n "$REAL_ENABLE" ] && echo 1 > "$REAL_ENABLE" 2>/dev/null
+
+FAIL_SAFE_PWM=$(pct_to_pwm "$FAIL_SAFE_PCT")
+EXIT_PWM=$(pct_to_pwm "$EXIT_PCT")
+
+trap 'set_pwm "$EXIT_PWM"; write_status "" "" "" "Stopped"; rm -f "$STATUS_FILE"' TERM INT
+
+logger -t easyfan "Started: thermal=$REAL_THERMAL fan=$REAL_FAN idle=${SPEED_IDLE_PCT}% normal=${TEMP_NORMAL}C/${SPEED_NORMAL_PCT}% mid=${TEMP_MID}C/${SPEED_MID_PCT}% full=${TEMP_FULL}C/${SPEED_FULL_PCT}% hyst=${HYST}C interval=${INTERVAL}s"
+
+LAST_HASH=""
+
+while true; do
+  load_conf
+  H="${THERMAL_FILE}${FAN_FILE}${SPEED_IDLE_PCT}${SPEED_NORMAL_PCT}${SPEED_MID_PCT}${SPEED_FULL_PCT}${TEMP_NORMAL}${TEMP_MID}${TEMP_FULL}${TEMP_DIV}${HYST}${INTERVAL}"
+  if [ "$H" != "$LAST_HASH" ]; then
+    REAL_THERMAL=$(find_thermal)
+    REAL_FAN=$(find_fan)
+    REAL_ENABLE=$(find_enable)
+    [ -n "$REAL_ENABLE" ] && echo 1 > "$REAL_ENABLE" 2>/dev/null
+    FAIL_SAFE_PWM=$(pct_to_pwm "$FAIL_SAFE_PCT")
+    EXIT_PWM=$(pct_to_pwm "$EXIT_PCT")
+    logger -t easyfan "Config applied: idle=${SPEED_IDLE_PCT}% normal=${TEMP_NORMAL}C/${SPEED_NORMAL_PCT}% mid=${TEMP_MID}C/${SPEED_MID_PCT}% full=${TEMP_FULL}C/${SPEED_FULL_PCT}% hyst=${HYST}C"
+    LAST_HASH="$H"; CURRENT_STAGE=0; PENDING_STAGE=0; PENDING_COUNT=0
+  fi
+
+  TEMP_RAW=$(cat "$REAL_THERMAL" 2>/dev/null)
+  if [ -z "$TEMP_RAW" ]; then
+    logger -t easyfan "ERROR: Cannot read $REAL_THERMAL"
+    set_pwm "$FAIL_SAFE_PWM"; write_status "" "$FAIL_SAFE_PWM" "" "Sensor read error"
+    sleep "$INTERVAL"; continue
+  fi
+
+  TEMP_C=$(( TEMP_RAW / TEMP_DIV ))
+  SPEED_PCT=$(calc_speed_pct "$TEMP_C")
+  TARGET_PWM=$(pct_to_pwm "$SPEED_PCT")
+
+  set_pwm "$TARGET_PWM"
+
+  RPM=""
+  case "$REAL_FAN" in */pwm[0-9])
+    fan_dir="${REAL_FAN%/*}" fan_ch="${REAL_FAN##*/pwm}" rpm_file="${fan_dir}/fan${fan_ch}_input"
+    [ -f "$rpm_file" ] && RPM=$(cat "$rpm_file" 2>/dev/null);; esac
+
+  write_status "$TEMP_RAW" "$TARGET_PWM" "${RPM:-}" ""
+  [ "$DEBUG" = "1" ] && logger -t easyfan "temp=${TEMP_C}C speed=${SPEED_PCT}% pwm=${TARGET_PWM} rpm=${RPM:-N/A} stage=${CURRENT_STAGE} pending=${PENDING_STAGE}(${PENDING_COUNT})"
+  sleep "$INTERVAL"
+done

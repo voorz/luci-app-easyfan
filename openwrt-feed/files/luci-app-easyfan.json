@@ -1,0 +1,13 @@
+{
+	"admin/services/easyfan": {
+		"title": "Easy Fan",
+		"order": 90,
+		"action": {
+			"type": "view",
+			"path": "easyfan"
+		},
+		"depends": {
+			"acl": [ "luci-app-easyfan" ]
+		}
+	}
+}
