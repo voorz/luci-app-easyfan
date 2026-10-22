@@ -5,7 +5,6 @@
 'require poll';
 'require rpc';
 'require uci';
-'require ui';
 'require view';
 
 const PKG_NAME = 'luci-app-easyfan';
@@ -48,25 +47,29 @@ function isNewer(remote, local) {
 }
 
 // Download and install ipk, then restart service
-function doUpgrade(assetUrl, btn) {
-	dom.callClassMethod(btn, 'setAttribute', 'disabled', 'true');
-	btn.textContent = _('下载中...');
+var isUpgrading = false;
+function doUpgrade(assetUrl, btn, statusEl) {
+	if (isUpgrading) return;
+	isUpgrading = true;
+	btn.disabled = true;
+	statusEl.textContent = _('下载中...');
 	return fs.exec('/usr/bin/curl', ['-fsSL', '-o', '/tmp/easyfan_upgrade.ipk', assetUrl])
 		.then(function() {
-			btn.textContent = _('安装中...');
+			statusEl.textContent = _('安装中...');
 			return fs.exec('/bin/opkg', ['install', '--force-reinstall', '/tmp/easyfan_upgrade.ipk']);
 		})
 		.then(function() {
 			return fs.exec('/etc/init.d/easyfan', ['restart']);
 		})
 		.then(function() {
-			ui.addNotification(null, E('p', _('升级成功，正在刷新页面...')), 'info');
+			statusEl.textContent = _('升级成功，正在刷新...');
 			setTimeout(function() { window.location.reload(); }, 2000);
 		})
 		.catch(function(err) {
-			ui.addNotification(null, E('p', _('升级失败: ' + (err.message || err))), 'error');
+			isUpgrading = false;
 			btn.disabled = false;
-			btn.textContent = _('点击更新');
+			statusEl.textContent = _('升级失败: %s').format(err.message || err);
+			setTimeout(function() { statusEl.textContent = ''; }, 5000);
 		});
 }
 
@@ -520,44 +523,50 @@ return view.extend({
 		let m, s, o;
 
 		// --- Version + check-update header ---
+		const statusEl = E('span', { 'class': 'easyfan-status-text' });
+		let upgradeUrl = null;
+
 		const versionBar = E('div', { 'class': 'easyfan-version-bar' }, [
 			E('span', { 'class': 'easyfan-version-label' }, _('版本')),
 			E('span', { 'class': 'easyfan-version-value' }, installed ? installed.version : '-'),
+			statusEl,
 			E('button', {
-				'class': 'easyfan-check-update-btn',
-				'click': function(ev) {
-					const btn = ev.target;
+				'class': 'cbi-button easyfan-check-update-btn',
+				'click': function() {
+					const btn = this;
+					if (isUpgrading) return;
+
+					// If we already found an update, clicking means upgrade
+					if (upgradeUrl) {
+						doUpgrade(upgradeUrl, btn, statusEl);
+						return;
+					}
+
+					// Otherwise, check for updates
 					btn.disabled = true;
-					btn.textContent = _('检查中...');
+					statusEl.textContent = _('检查中...');
 					getLatestRelease().then(function(release) {
 						const localVer = installed ? installed.version : '0';
 						const remoteVer = release.tag.replace(/^v/, '');
 						if (release.assetUrl && isNewer(remoteVer, localVer)) {
+							upgradeUrl = release.assetUrl;
 							btn.textContent = _('点击更新');
-							btn.classList.add('easyfan-update-available');
 							btn.disabled = false;
-							btn.onclick = function() {
-								doUpgrade(release.assetUrl, btn);
-							};
-							if (release.date) {
-								versionBar.querySelectorAll('.easyfan-update-date').forEach(function(el) { el.remove(); });
-								dom.append(versionBar, E('span', { 'class': 'easyfan-update-date' }, _('发布日期: %s').format(release.date)));
-							}
+							statusEl.textContent = _('发现新版本 %s (%s)').format(remoteVer, release.date);
 						} else {
-							btn.textContent = _('已是最新');
-							btn.disabled = true;
-							btn.classList.add('easyfan-up-to-date');
+							btn.disabled = false;
+							statusEl.textContent = _('已是最新');
 							setTimeout(function() {
-								btn.disabled = false;
-								btn.textContent = _('检查更新');
-								btn.classList.remove('easyfan-up-to-date');
+								if (!isUpgrading && !upgradeUrl)
+									statusEl.textContent = '';
 							}, 3000);
 						}
 					}).catch(function() {
-						btn.textContent = _('检查失败');
 						btn.disabled = false;
+						statusEl.textContent = _('检查失败');
 						setTimeout(function() {
-							btn.textContent = _('检查更新');
+							if (!isUpgrading && !upgradeUrl)
+								statusEl.textContent = '';
 						}, 3000);
 					});
 				}

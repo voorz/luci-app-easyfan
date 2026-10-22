@@ -656,6 +656,7 @@
 
 .easyfan-version-label {
 	font-size: .8rem;
+	opacity: .7;
 }
 
 .easyfan-version-value {
@@ -665,15 +666,9 @@
 
 .easyfan-check-update-btn {
 	font-size: .8rem;
-	background: #fff;
-	color: #000;
-	border: 1px solid #000;
-	border-radius: 4px;
-	padding: .25rem .7rem;
-	cursor: pointer;
+	padding: .2rem .6rem;
 }
 
-.easyfan-update-date {
-	font-size: .75rem;
-	margin-left: .3rem;
+.easyfan-status-text {
+	font-size: .8rem;
 }

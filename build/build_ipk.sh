@@ -7,7 +7,7 @@
 set -e
 
 PKG_NAME=luci-app-easyfan
-PKG_VERSION=1.1.1
+PKG_VERSION=1.2.0
 PKG_RELEASE=1
 
 DEV_DIR="$(cd "$(dirname "$0")" && pwd)"
