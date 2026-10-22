@@ -524,7 +524,7 @@ return view.extend({
 			E('span', { 'class': 'easyfan-version-label' }, _('版本')),
 			E('span', { 'class': 'easyfan-version-value' }, installed ? installed.version : '-'),
 			E('button', {
-				'class': 'btn easyfan-check-update-btn',
+				'class': 'cbi-button cbi-button-neutral easyfan-check-update-btn',
 				'click': function(ev) {
 					const btn = ev.target;
 					btn.disabled = true;
