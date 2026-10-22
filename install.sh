@@ -5,7 +5,7 @@
 #   curl -fsSL https://raw.githubusercontent.com/voorz/luci-app-easyfan/main/install.sh | sh
 #
 # Environment:
-#   VERSION  Specific version to install (e.g. "1.0.0-1"), default: latest
+#   VERSION  Specific version to install (e.g. "1.0.1-1"), default: latest
 #   REPO     GitHub repo (default: voorz/luci-app-easyfan)
 set -eu
 
@@ -47,7 +47,7 @@ if [ "$VERSION" = "latest" ]; then
   TAG=$(echo "$JSON" | grep '"tag_name"' | cut -d'"' -f4)
   ASSET=$(echo "$JSON" | grep '"name"' | cut -d'"' -f4 | grep '^luci-app-easyfan_.*_all\.ipk$' | sort -V | tail -1)
 else
-  # VERSION like "1.0.0-1" -> tag v1.0.0, asset luci-app-easyfan_1.0.0-1_all.ipk
+  # VERSION like "1.0.1-1" -> tag v1.0.0, asset luci-app-easyfan_1.0.0-1_all.ipk
   TAG="v$(echo "$VERSION" | sed 's/-[0-9]*$//')"
   ASSET="luci-app-easyfan_${VERSION}_all.ipk"
 fi
