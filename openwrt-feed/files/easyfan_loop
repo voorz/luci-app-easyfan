@@ -129,6 +129,10 @@ stage_to_pct() {
   esac
 }
 
+# Calculate speed for the current temperature. Sets global SPEED_PCT.
+# NOTE: this function mutates the stage state above, so it must run in
+# the main shell - never call it via $(...), a subshell would discard
+# the state on every poll and the pending-switch counter never advances.
 calc_speed_pct() {
   local t=$1
   local target=$(calc_target_stage "$t")
@@ -137,7 +141,7 @@ calc_speed_pct() {
   if [ "$target" = "$CURRENT_STAGE" ]; then
     PENDING_STAGE=0
     PENDING_COUNT=0
-    echo "$(stage_to_pct "$CURRENT_STAGE")"
+    SPEED_PCT=$(stage_to_pct "$CURRENT_STAGE")
     return
   fi
 
@@ -156,7 +160,7 @@ calc_speed_pct() {
     PENDING_COUNT=0
   fi
 
-  echo "$(stage_to_pct "$CURRENT_STAGE")"
+  SPEED_PCT=$(stage_to_pct "$CURRENT_STAGE")
 }
 
 load_conf
@@ -201,7 +205,7 @@ while true; do
   fi
 
   TEMP_C=$(( TEMP_RAW / TEMP_DIV ))
-  SPEED_PCT=$(calc_speed_pct "$TEMP_C")
+  calc_speed_pct "$TEMP_C"
   TARGET_PWM=$(pct_to_pwm "$SPEED_PCT")
 
   set_pwm "$TARGET_PWM"
