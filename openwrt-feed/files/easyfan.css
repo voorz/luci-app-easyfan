@@ -677,8 +677,7 @@
 }
 
 .easyfan-check-update-btn:hover:not(:disabled) {
-	border-color: var(--primary-color, #1976d2);
-	color: var(--primary-color, #1976d2);
+	opacity: .8;
 }
 
 .easyfan-check-update-btn:disabled {
