@@ -687,9 +687,7 @@
 }
 
 .easyfan-check-update-btn.easyfan-update-available {
-	background: var(--primary-color, #1976d2);
-	color: #fff;
-	border-color: var(--primary-color, #1976d2);
+	font-weight: 600;
 }
 
 .easyfan-check-update-btn.easyfan-up-to-date {
