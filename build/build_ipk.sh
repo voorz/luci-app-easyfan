@@ -27,11 +27,10 @@ mkdir -p "$BUILD/data" "$BUILD/control"
 cat > "$BUILD/control/control" << CTRL
 Package: ${PKG_NAME}
 Version: ${PKG_VERSION}-${PKG_RELEASE}
-Depends: libc, luci-base
+Depends: libc, luci-base, kmod-hwmon-core, kmod-hwmon-pwmfan
 Provides: ${PKG_NAME}-any
 Section: luci
 Architecture: all
-Installed-Size: 40000
 Description:  Three-stage PWM fan control for OpenWrt. Idle/Normal/Mid/Full speed with temperature thresholds.
 CTRL
 
@@ -117,6 +116,10 @@ chmod 755 "$BUILD/control/postinst" "$BUILD/control/prerm" "$BUILD/control/postr
 # 内层 data.tar.gz
 cd "$BUILD/data"
 tar --format=gnu --numeric-owner --owner=0 --group=0 --sort=name -cf - ./* | gzip -n > "$BUILD/data.tar.gz"
+
+# Installed-Size = data.tar 解开后的字节数（与官方 ipkg-build 口径一致）
+INSTALLED_SIZE=$(zcat "$BUILD/data.tar.gz" | wc -c | tr -d ' ')
+echo "Installed-Size: $INSTALLED_SIZE" >> "$BUILD/control/control"
 
 # 内层 control.tar.gz
 cd "$BUILD/control"
