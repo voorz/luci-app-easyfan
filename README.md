@@ -20,16 +20,4 @@ installs it):
 curl -fsSL https://raw.githubusercontent.com/voorz/luci-app-easyfan/main/install.sh | sh
 ```
 
-To install a specific version:
-
-```sh
-VERSION=1.0.1-1 sh -c "$(curl -fsSL https://raw.githubusercontent.com/voorz/luci-app-easyfan/main/install.sh)"
-```
-
-Or install a release package manually:
-
-```sh
-opkg install luci-app-easyfan_*_all.ipk
-```
-
 Then navigate to **Services → Easy Fan** in the LuCI web interface.

@@ -539,8 +539,10 @@ return view.extend({
 							btn.onclick = function() {
 								doUpgrade(release.assetUrl, btn);
 							};
-							if (release.date)
+							if (release.date) {
+								versionBar.querySelectorAll('.easyfan-update-date').forEach(function(el) { el.remove(); });
 								dom.append(versionBar, E('span', { 'class': 'easyfan-update-date' }, _('发布日期: %s').format(release.date)));
+							}
 						} else {
 							btn.textContent = _('已是最新');
 							btn.disabled = true;
