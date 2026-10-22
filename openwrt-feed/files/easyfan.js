@@ -5,7 +5,70 @@
 'require poll';
 'require rpc';
 'require uci';
+'require ui';
 'require view';
+
+const PKG_NAME = 'luci-app-easyfan';
+const GITHUB_REPO = 'voorz/luci-app-easyfan';
+
+// Fetch installed version and install date via opkg
+function getInstalledInfo() {
+	return fs.exec('/bin/opkg', ['status', PKG_NAME]).then(function(res) {
+		const out = res.stdout || '';
+		const version = (out.match(/^Version: (.+)$/m) || [])[1] || '-';
+		return { version: version.trim() };
+	});
+}
+
+// Fetch latest release info from GitHub API (browser-side fetch)
+function getLatestRelease() {
+	return fetch('https://api.github.com/repos/' + GITHUB_REPO + '/releases/latest', {
+		headers: { 'Accept': 'application/vnd.github+json' }
+	}).then(function(res) { return res.json(); }).then(function(data) {
+		return {
+			tag: data.tag_name || '',
+			date: data.published_at ? data.published_at.split('T')[0] : '',
+			assetName: (data.assets || []).map(function(a) { return a.name; })
+				.filter(function(n) { return n.match(/^luci-app-easyfan_.*_all\.ipk$/); })[0] || '',
+			assetUrl: (data.assets || []).map(function(a) { return a.browser_download_url; })
+				.filter(function(u) { return u.match(/luci-app-easyfan_.*_all\.ipk$/); })[0] || ''
+		};
+	});
+}
+
+// Compare version strings like '1.0.1-1' vs '1.0.2-1'
+function isNewer(remote, local) {
+	const r = remote.split(/[.-]/).map(Number);
+	const l = local.split(/[.-]/).map(Number);
+	for (let i = 0; i < Math.max(r.length, l.length); i++) {
+		if ((r[i] || 0) > (l[i] || 0)) return true;
+		if ((r[i] || 0) < (l[i] || 0)) return false;
+	}
+	return false;
+}
+
+// Download and install ipk, then restart service
+function doUpgrade(assetUrl, btn) {
+	dom.callClassMethod(btn, 'setAttribute', 'disabled', 'true');
+	btn.textContent = _('下载中...');
+	return fs.exec('/usr/bin/curl', ['-fsSL', '-o', '/tmp/easyfan_upgrade.ipk', assetUrl])
+		.then(function() {
+			btn.textContent = _('安装中...');
+			return fs.exec('/bin/opkg', ['install', '--force-reinstall', '/tmp/easyfan_upgrade.ipk']);
+		})
+		.then(function() {
+			return fs.exec('/etc/init.d/easyfan', ['restart']);
+		})
+		.then(function() {
+			ui.addNotification(null, E('p', _('升级成功，正在刷新页面...')), 'info');
+			setTimeout(function() { window.location.reload(); }, 2000);
+		})
+		.catch(function(err) {
+			ui.addNotification(null, E('p', _('升级失败: ' + (err.message || err))), 'error');
+			btn.disabled = false;
+			btn.textContent = _('点击更新');
+		});
+}
 
 const callServiceList = rpc.declare({
 	object: 'service',
@@ -445,11 +508,59 @@ const IdleSpeedSlider = form.Value.extend({
 
 return view.extend({
 	load() {
-		return uci.load('easyfan');
+		return Promise.all([
+			uci.load('easyfan'),
+			getInstalledInfo()
+		]).then(function(results) {
+			return results[1];
+		});
 	},
 
-	render() {
+	render(installed) {
 		let m, s, o;
+
+		// --- Version + check-update header ---
+		const versionBar = E('div', { 'class': 'easyfan-version-bar' }, [
+			E('span', { 'class': 'easyfan-version-label' }, _('版本')),
+			E('span', { 'class': 'easyfan-version-value' }, installed ? installed.version : '-'),
+			E('button', {
+				'class': 'btn easyfan-check-update-btn',
+				'click': function(ev) {
+					const btn = ev.target;
+					btn.disabled = true;
+					btn.textContent = _('检查中...');
+					getLatestRelease().then(function(release) {
+						const localVer = installed ? installed.version : '0';
+						const remoteVer = release.tag.replace(/^v/, '');
+						if (release.assetUrl && isNewer(remoteVer, localVer)) {
+							btn.textContent = _('点击更新');
+							btn.classList.add('easyfan-update-available');
+							btn.disabled = false;
+							btn.onclick = function() {
+								doUpgrade(release.assetUrl, btn);
+							};
+							if (release.date)
+								dom.append(versionBar, E('span', { 'class': 'easyfan-update-date' }, _('发布日期: %s').format(release.date)));
+						} else {
+							btn.textContent = _('已是最新');
+							btn.disabled = true;
+							btn.classList.add('easyfan-up-to-date');
+							setTimeout(function() {
+								btn.disabled = false;
+								btn.textContent = _('检查更新');
+								btn.classList.remove('easyfan-up-to-date');
+							}, 3000);
+						}
+					}).catch(function() {
+						btn.textContent = _('检查失败');
+						btn.disabled = false;
+						setTimeout(function() {
+							btn.textContent = _('检查更新');
+						}, 3000);
+					});
+				}
+			}, _('检查更新'))
+		]);
 
 		m = new form.Map('easyfan', _('风扇控制'),
 			_('基于温度的三段式风扇转速控制。低于标准温度时以微速静音运行，达到全速温度后以100%转速运行。'));
@@ -596,6 +707,9 @@ return view.extend({
 		o.rmempty = false;
 		o.description = _('每次轮询时将温度、转速和RPM写入系统日志。');
 
-		return m.render();
+		return Promise.all([ m.render(), Promise.resolve(versionBar) ]).then(function(nodes) {
+			const wrapper = E('div', {}, [ nodes[1], nodes[0] ]);
+			return wrapper;
+		});
 	}
 });

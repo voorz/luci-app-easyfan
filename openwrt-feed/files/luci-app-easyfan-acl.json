@@ -4,7 +4,8 @@
 		"read": {
 			"uci": [ "easyfan" ],
 			"ubus": {
-				"service": [ "list" ]
+				"service": [ "list" ],
+				"file": [ "exec" ]
 			},
 			"file": {
 				"/var/run/easyfan.status": [ "read" ]

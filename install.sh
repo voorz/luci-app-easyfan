@@ -65,7 +65,7 @@ log "Downloading $ASSET ($TAG)..."
 $DL "$TMPDIR/$ASSET" "$BASE/$ASSET"
 
 log "Installing..."
-opkg install "$TMPDIR/$ASSET"
+opkg install --force-reinstall "$TMPDIR/$ASSET"
 
 log "Verifying..."
 if /etc/init.d/easyfan enabled; then
