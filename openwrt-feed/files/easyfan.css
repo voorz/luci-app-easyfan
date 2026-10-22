@@ -667,8 +667,51 @@
 .easyfan-check-update-btn {
 	font-size: .8rem;
 	padding: .2rem .6rem;
+	background: #fff !important;
+	color: #000 !important;
+	border: 1px solid #000 !important;
+	border-radius: 4px;
+	cursor: pointer;
 }
 
-.easyfan-status-text {
+.easyfan-check-update-btn:disabled {
+	opacity: .5;
+	cursor: default;
+}
+
+.easyfan-check-update-btn:hover:not(:disabled) {
+	opacity: .8;
+}
+
+.easyfan-status-tag {
+	display: none;
 	font-size: .8rem;
+	padding: .1rem .4rem;
+	border-radius: 3px;
+	line-height: 1.4;
+	white-space: nowrap;
+}
+
+.easyfan-status-tag.easyfan-tag-info {
+	display: inline-block;
+	background: #4a9eff;
+	color: #fff;
+}
+
+.easyfan-status-tag.easyfan-tag-success {
+	display: inline-block;
+	background: #2ea043;
+	color: #fff;
+}
+
+.easyfan-status-tag.easyfan-tag-warn {
+	display: inline-block;
+	background: #d29922;
+	color: #fff;
+}
+
+.easyfan-status-tag.easyfan-tag-error {
+	display: inline-block;
+	background: #da3633;
+	color: #fff;
 }

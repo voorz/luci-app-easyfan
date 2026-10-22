@@ -48,28 +48,39 @@ function isNewer(remote, local) {
 
 // Download and install ipk, then restart service
 var isUpgrading = false;
+
+function setTag(el, type, text) {
+	el.className = 'easyfan-status-tag easyfan-tag-' + type;
+	el.textContent = text;
+}
+
+function clearTag(el) {
+	el.className = 'easyfan-status-tag';
+	el.textContent = '';
+}
+
 function doUpgrade(assetUrl, btn, statusEl) {
 	if (isUpgrading) return;
 	isUpgrading = true;
 	btn.disabled = true;
-	statusEl.textContent = _('下载中...');
+	setTag(statusEl, 'info', _('下载中...'));
 	return fs.exec('/usr/bin/curl', ['-fsSL', '-o', '/tmp/easyfan_upgrade.ipk', assetUrl])
 		.then(function() {
-			statusEl.textContent = _('安装中...');
+			setTag(statusEl, 'info', _('安装中...'));
 			return fs.exec('/bin/opkg', ['install', '--force-reinstall', '/tmp/easyfan_upgrade.ipk']);
 		})
 		.then(function() {
 			return fs.exec('/etc/init.d/easyfan', ['restart']);
 		})
 		.then(function() {
-			statusEl.textContent = _('升级成功，正在刷新...');
+			setTag(statusEl, 'success', _('升级成功，刷新中...'));
 			setTimeout(function() { window.location.reload(); }, 2000);
 		})
 		.catch(function(err) {
 			isUpgrading = false;
 			btn.disabled = false;
-			statusEl.textContent = _('升级失败: %s').format(err.message || err);
-			setTimeout(function() { statusEl.textContent = ''; }, 5000);
+			setTag(statusEl, 'error', _('升级失败'));
+			setTimeout(function() { clearTag(statusEl); }, 5000);
 		});
 }
 
@@ -523,15 +534,14 @@ return view.extend({
 		let m, s, o;
 
 		// --- Version + check-update header ---
-		const statusEl = E('span', { 'class': 'easyfan-status-text' });
+		const statusEl = E('span', { 'class': 'easyfan-status-tag' });
 		let upgradeUrl = null;
 
 		const versionBar = E('div', { 'class': 'easyfan-version-bar' }, [
 			E('span', { 'class': 'easyfan-version-label' }, _('版本')),
 			E('span', { 'class': 'easyfan-version-value' }, installed ? installed.version : '-'),
-			statusEl,
 			E('button', {
-				'class': 'cbi-button easyfan-check-update-btn',
+				'class': 'easyfan-check-update-btn',
 				'click': function() {
 					const btn = this;
 					if (isUpgrading) return;
@@ -543,34 +553,35 @@ return view.extend({
 					}
 
 					// Otherwise, check for updates
-					btn.disabled = true;
-					statusEl.textContent = _('检查中...');
-					getLatestRelease().then(function(release) {
-						const localVer = installed ? installed.version : '0';
-						const remoteVer = release.tag.replace(/^v/, '');
-						if (release.assetUrl && isNewer(remoteVer, localVer)) {
-							upgradeUrl = release.assetUrl;
-							btn.textContent = _('点击更新');
-							btn.disabled = false;
-							statusEl.textContent = _('发现新版本 %s (%s)').format(remoteVer, release.date);
-						} else {
-							btn.disabled = false;
-							statusEl.textContent = _('已是最新');
-							setTimeout(function() {
-								if (!isUpgrading && !upgradeUrl)
-									statusEl.textContent = '';
-							}, 3000);
-						}
-					}).catch(function() {
+				btn.disabled = true;
+				setTag(statusEl, 'info', _('检查中...'));
+				getLatestRelease().then(function(release) {
+					const localVer = installed ? installed.version : '0';
+					const remoteVer = release.tag.replace(/^v/, '');
+					if (release.assetUrl && isNewer(remoteVer, localVer)) {
+						upgradeUrl = release.assetUrl;
+						btn.textContent = _('点击更新');
 						btn.disabled = false;
-						statusEl.textContent = _('检查失败');
+						setTag(statusEl, 'warn', _('新版本 %s').format(remoteVer));
+					} else {
+						btn.disabled = false;
+						setTag(statusEl, 'success', _('已是最新'));
 						setTimeout(function() {
 							if (!isUpgrading && !upgradeUrl)
-								statusEl.textContent = '';
+								clearTag(statusEl);
 						}, 3000);
-					});
+					}
+				}).catch(function() {
+					btn.disabled = false;
+					setTag(statusEl, 'error', _('检查失败'));
+					setTimeout(function() {
+						if (!isUpgrading && !upgradeUrl)
+							clearTag(statusEl);
+					}, 3000);
+				});
 				}
-			}, _('检查更新'))
+			}, _('检查更新')),
+			statusEl
 		]);
 
 		m = new form.Map('easyfan', _('风扇控制'),
