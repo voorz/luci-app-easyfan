@@ -686,10 +686,12 @@
 .easyfan-status-tag {
 	display: none;
 	font-size: .8rem;
-	padding: .1rem .4rem;
-	border-radius: 3px;
+	padding: .1rem .6rem;
+	border-radius: 999px;
 	line-height: 1.4;
 	white-space: nowrap;
+	cursor: default;
+	user-select: none;
 }
 
 .easyfan-status-tag.easyfan-tag-info {
