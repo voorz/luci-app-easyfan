@@ -596,7 +596,11 @@ return view.extend({
 			const node = E('div', { 'class': 'cbi-section easyfan-runtime' }, [
 				E('link', {
 					'rel': 'stylesheet',
-					'href': L.resource('view/easyfan.css')
+					/* Cache-bust with the package version: a bare URL
+					   lets the browser keep serving the previous
+					   stylesheet after an upgrade, so style fixes
+					   look as if nothing changed. */
+					'href': L.resource('view/easyfan.css') + '?v=' + (installed ? installed.version : '')
 				}),
 				E('div', { 'class': 'cbi-section-node' }, _('正在收集数据...'))
 			]);
